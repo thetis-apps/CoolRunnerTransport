@@ -15,7 +15,7 @@ Transform:
 # Metadata to use for the publishing to the SAR
 Metadata:
   AWS::ServerlessRepo::Application:
-    Name: thetis-ims-CoolRunner-transport
+    Name: thetis-ims-coolrunner-transport
     Description: Application for integrating Thetis IMS with the freight carrier CoolRunner.
     Author: thetis-apps
     SpdxLicenseId: Apache-2.0
@@ -23,7 +23,7 @@ Metadata:
     ReadmeUrl: README.md
     Labels: ['thetis-ims']
     HomePageUrl: https://github.com/thetis-apps/CoolRunnerTransport
-    SemanticVersion: 0.0.2
+    SemanticVersion: 0.0.3
     SourceCodeUrl: https://github.com/thetis-apps/CoolRunnerTransport
     
 # Parameters of the application 

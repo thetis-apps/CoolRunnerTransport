@@ -19,6 +19,10 @@ const axios = require('axios');
 var AWS = require('aws-sdk');
 AWS.config.update({region:'eu-west-1'});
 
+const eu = ["BE","GR","LT","PT",
+			"BG","ES","LU","RO","CZ","FR","HU","SI","DK","HR","MT","SK",
+			"DE","IT","NL","FI","EE","CY","AT","SE","IE","LV","PL"];
+
 /**
  * Send a response to CloudFormation regarding progress in creating resource.
  */
@@ -47,7 +51,6 @@ exports.initializer = async (input, context) => {
 		    let setup = new Object();
 			setup.userName = "lmp@thetis-apps.com";
 			setup.token = "iyfms93z8jwicyn3scby9ww1e1wvvqq4";
-			setup.test = true;
 			let dataDocument = new Object();
 			dataDocument.CoolRunnerTransport = setup;
 			carrier.dataDocument = JSON.stringify(dataDocument);
@@ -316,6 +319,47 @@ exports.packingCompletedHandler = async (event, context) => {
 		coolRunnerShipment.comment = '';
 		coolRunnerShipment.reference = shipment.shipmentNumber + '#' + i;
 		
+		// If not within the EU create custom lines
+		
+		if (!eu.includes(deliveryAddress.countryCode)) {
+			
+			let orderLines = [];
+			let shipmentLines = shipment.shipmentLines;
+			for (let i = 0; i < shipmentLines.length; i++) {
+				let shipmentLine = shipmentLines[i];
+				let orderLine = new Object();
+				let customsLines = [];
+				orderLine.item_number = shipmentLine.stockKeepingUnit;
+				let numItemsPacked = shipmentLine.numItemsPacked;
+				orderLine.qty = numItemsPacked;
+				let customs = new Object();
+				customs.currency_code = shipment.currencyCode;
+				customs.origin_country = "DK";
+				customs.receiver_tariff = shipmentLine.harmonizedSystemCode;
+				customs.sender_tariff = shipmentLine.harmonizedSystemCode;
+				customs.description = shipmentLine.importExportText;
+				let salesPrice = shipmentLine.salesPrice;
+				if (salesPrice != null && numItemsPacked != null) {
+					customs.total_price = salesPrice * numItemsPacked;
+				} else {
+					customs.total_price = 0;
+				}
+				let weight = shipmentLine.weight;
+				if (weight != null) {
+					customs.weight = weight * numItemsPacked * 1000;
+				} else {
+					customs.weight = 0;
+				}
+				customsLines.push(customs);
+				orderLine.customs = customsLines;
+				orderLines.push(orderLine);
+			}
+
+			coolRunnerShipment.order_lines = orderLines;	
+		}
+		
+		// Now post to CoolRunner
+		
 	    response = await coolRunner.post("shipments", coolRunnerShipment);
 	
 		if (response.status == 422) {
@@ -338,13 +382,14 @@ exports.packingCompletedHandler = async (event, context) => {
 			
 			coolRunnerShipment = response.data;
 			
-			let labelUri = coolRunnerShipment.links.label;
-	    
+			let labelUri = coolRunnerShipment._links.label;
+			response = await coolRunner.get(labelUri, { responseType: 'arraybuffer' });
+
 	    	// Set tracking number on shipping containers and attach labels to shipment
 
 			let shippingLabel = new Object();
 			shippingLabel.fileName = "SHIPPING_LABEL_" + shippingContainer.id + ".pdf";
-			shippingLabel.presignedUrl = labelUri;
+			shippingLabel.base64EncodedContent = response.data.toString('base64');
 			await ims.post("shipments/"+ shipmentId + "/attachments", shippingLabel);
 	
 			await ims.patch("shippingContainers/" + shippingContainer.id, { trackingNumber: coolRunnerShipment.package_number });
