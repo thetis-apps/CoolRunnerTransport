@@ -376,7 +376,7 @@ exports.packingCompletedHandler = async (event, context) => {
 			message.time = Date.now();
 			message.source = "CoolRunnerTransport";
 			message.messageType = "ERROR";
-			if (error != null) {
+			if (error != null && error.message != null) {
 				message.messageText = "Failed to register shipment " + shipment.shipmentNumber + " with CoolRunner. CoolRunner says: " + error.message;
 			} else {
 				message.messageText = "Failed to register shipment " + shipment.shipmentNumber + " with CoolRunner. CoolRunner returned status code " + response.status + " with no error message.";
