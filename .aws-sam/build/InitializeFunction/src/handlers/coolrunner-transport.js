@@ -140,7 +140,7 @@ async function getCoolRunner(setup) {
 				"Content-Type": "application/json",
 				"X-Developer-Id": "Thetis Apps ApS" },
 		validateStatus: function (status) {
-		    return status >= 200 && status < 300 || status == 422; // default
+		    return true; // default
 		}
 	});
 	
@@ -288,7 +288,7 @@ exports.packingCompletedHandler = async (event, context) => {
 		let carrierService;
 		if (shipment.deliverToPickUpPoint) {
 			carrierService = 'droppoint';
-			coolRunnerShipment.servicepointId = shipment.pickUpPointId;
+			coolRunnerShipment.servicepoint_id = shipment.pickUpPointId;
 		} else {
 			if (carrier == 'dao') {
 				carrierService = 'delivery_package';
@@ -327,32 +327,35 @@ exports.packingCompletedHandler = async (event, context) => {
 			let shipmentLines = shipment.shipmentLines;
 			for (let i = 0; i < shipmentLines.length; i++) {
 				let shipmentLine = shipmentLines[i];
-				let orderLine = new Object();
-				let customsLines = [];
-				orderLine.item_number = shipmentLine.stockKeepingUnit;
-				let numItemsPacked = shipmentLine.numItemsPacked;
-				orderLine.qty = numItemsPacked;
-				let customs = new Object();
-				customs.currency_code = shipment.currencyCode;
-				customs.origin_country = "DK";
-				customs.receiver_tariff = shipmentLine.harmonizedSystemCode;
-				customs.sender_tariff = shipmentLine.harmonizedSystemCode;
-				customs.description = shipmentLine.importExportText;
 				let salesPrice = shipmentLine.salesPrice;
-				if (salesPrice != null && numItemsPacked != null) {
-					customs.total_price = salesPrice * numItemsPacked;
-				} else {
-					customs.total_price = 0;
+				let harmonizedSystemCode = shipmentLine.harmonizedSystemCode;
+				if (salesPrice > 0) {
+					let orderLine = new Object();
+					let customsLines = [];
+					orderLine.item_number = shipmentLine.stockKeepingUnit;
+					let numItemsPacked = shipmentLine.numItemsPacked;
+					orderLine.qty = numItemsPacked;
+					let customs = new Object();
+					customs.currency_code = shipment.currencyCode;
+					customs.origin_country = "DK";
+					customs.receiver_tariff = harmonizedSystemCode;
+					customs.sender_tariff = harmonizedSystemCode;
+					customs.description = shipmentLine.importExportText;
+					if (salesPrice != null && numItemsPacked != null) {
+						customs.total_price = salesPrice * numItemsPacked;
+					} else {
+						customs.total_price = 0;
+					}
+					let weight = shipmentLine.weight;
+					if (weight != null) {
+						customs.weight = weight * numItemsPacked * 1000;
+					} else {
+						customs.weight = 0;
+					}
+					customsLines.push(customs);
+					orderLine.customs = customsLines;
+					orderLines.push(orderLine);
 				}
-				let weight = shipmentLine.weight;
-				if (weight != null) {
-					customs.weight = weight * numItemsPacked * 1000;
-				} else {
-					customs.weight = 0;
-				}
-				customsLines.push(customs);
-				orderLine.customs = customsLines;
-				orderLines.push(orderLine);
 			}
 
 			coolRunnerShipment.order_lines = orderLines;	
@@ -362,7 +365,7 @@ exports.packingCompletedHandler = async (event, context) => {
 		
 	    response = await coolRunner.post("shipments", coolRunnerShipment);
 	
-		if (response.status == 422) {
+		if (response.status >= 300) {
 			
 			errors = true;
 			
@@ -373,7 +376,11 @@ exports.packingCompletedHandler = async (event, context) => {
 			message.time = Date.now();
 			message.source = "CoolRunnerTransport";
 			message.messageType = "ERROR";
-			message.messageText = "Failed to register shipment with CoolRunner. CoolRunner says: " + error.message;
+			if (error != null) {
+				message.messageText = "Failed to register shipment " + shipment.shipmentNumber + " with CoolRunner. CoolRunner says: " + error.message;
+			} else {
+				message.messageText = "Failed to register shipment " + shipment.shipmentNumber + " with CoolRunner. CoolRunner returned status code " + response.status + " with no error message.";
+			}
 			message.deviceName = detail.deviceName;
 			message.userId = detail.userId;
 			await ims.post("events/" + detail.eventId + "/messages", message);
@@ -391,8 +398,13 @@ exports.packingCompletedHandler = async (event, context) => {
 			shippingLabel.fileName = "SHIPPING_LABEL_" + shippingContainer.id + ".pdf";
 			shippingLabel.base64EncodedContent = response.data.toString('base64');
 			await ims.post("shipments/"+ shipmentId + "/attachments", shippingLabel);
-	
-			await ims.patch("shippingContainers/" + shippingContainer.id, { trackingNumber: coolRunnerShipment.package_number });
+			
+			let trackingUrl;
+			if (shipment.termsOfDelivery == 'royalmail') {
+				trackingUrl = 'https://www.royalmail.com/business/track-your-item#/tracking-results/' + coolRunnerShipment.package_number;
+			} // To be extended 
+			
+			await ims.patch("shippingContainers/" + shippingContainer.id, { trackingNumber: coolRunnerShipment.package_number, trackingUrl: trackingUrl });
 				
 		}
 		
