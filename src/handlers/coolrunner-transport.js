@@ -329,6 +329,7 @@ exports.packingCompletedHandler = async (event, context) => {
 				let shipmentLine = shipmentLines[i];
 				let salesPrice = shipmentLine.salesPrice;
 				let harmonizedSystemCode = shipmentLine.harmonizedSystemCode;
+				let customsTariffNumber = shipmentLine.customsTariffNumber;
 				if (salesPrice > 0) {
 					let orderLine = new Object();
 					let customsLines = [];
@@ -338,7 +339,7 @@ exports.packingCompletedHandler = async (event, context) => {
 					let customs = new Object();
 					customs.currency_code = shipment.currencyCode;
 					customs.origin_country = "DK";
-					customs.receiver_tariff = harmonizedSystemCode;
+					customs.receiver_tariff = customsTariffNumber != null ? customsTariffNumber : harmonizedSystemCode;
 					customs.sender_tariff = harmonizedSystemCode;
 					customs.description = shipmentLine.importExportText;
 					if (salesPrice != null && numItemsPacked != null) {

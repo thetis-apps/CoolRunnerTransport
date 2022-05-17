@@ -13,7 +13,7 @@ Metadata:
     Labels:
     - thetis-ims
     HomePageUrl: https://github.com/thetis-apps/CoolRunnerTransport
-    SemanticVersion: '0.1.1'
+    SemanticVersion: '0.2.0'
     SourceCodeUrl: https://github.com/thetis-apps/CoolRunnerTransport
 Parameters:
   ContextId:
