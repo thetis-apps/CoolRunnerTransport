@@ -341,7 +341,7 @@ exports.packingCompletedHandler = async (event, context) => {
 					customs.origin_country = "DK";
 					customs.receiver_tariff = customsTariffNumber != null ? customsTariffNumber : harmonizedSystemCode;
 					customs.sender_tariff = harmonizedSystemCode;
-					customs.description = shipmentLine.importExportText;
+					customs.description = shipmentLine.productName;
 					if (salesPrice != null && numItemsPacked != null) {
 						customs.total_price = salesPrice * numItemsPacked;
 					} else {
