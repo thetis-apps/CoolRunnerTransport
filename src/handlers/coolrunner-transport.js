@@ -241,11 +241,6 @@ exports.packingCompletedHandler = async (event, context) => {
 
 		let coolRunnerShipment = new Object();
 	
-		// Take sub carrier from termsOfDelivery
-		
-		let carrier = shipment.termsOfDelivery;
-		coolRunnerShipment.carrier = carrier;
-	
 		// Set sender information
 	
 		let sender = new Object();
@@ -283,26 +278,47 @@ exports.packingCompletedHandler = async (event, context) => {
 		}
 		coolRunnerShipment.receiver = receiver;
 		
-		// Set pick-up point id and carrier service
+		// Take sub carrier from termsOfDelivery
 		
-		let carrierService;
-		if (shipment.deliverToPickUpPoint) {
-			carrierService = 'droppoint';
-			coolRunnerShipment.servicepoint_id = shipment.pickUpPointId;
+		let tokens = shipment.termsOfDelivery.split("|");
+		let carrier = tokens[0];
+		coolRunnerShipment.carrier = carrier;
+		
+		// Take carrier product from termsOfDelivery or default to 'private'
+		
+		let carrierProduct;
+		if (tokens.length > 1) {
+			carrierProduct = tokens[1];
 		} else {
-			if (carrier == 'dao') {
-				carrierService = 'delivery_package';
-			} else if (carrier == 'coolrunner') {
-				carrierService = 'europe';
+			carrierProduct = 'private';
+		}
+		coolRunnerShipment.carrier_product = carrierProduct;
+
+		// Take carrier service from termsOfDelivery or default according to algorithm
+
+		let carrierService;
+		if (tokens.length > 2) {
+			carrierService = tokens[2];
+		} else {
+			if (shipment.deliverToPickUpPoint) {
+				carrierService = 'droppoint';
 			} else {
-				carrierService = 'delivery';
+				if (carrier == 'dao') {
+					carrierService = 'delivery_package';
+				} else if (carrier == 'coolrunner') {
+					carrierService = 'europe';
+				} else {
+					carrierService = 'delivery';
+				}
 			}
 		}
 		coolRunnerShipment.carrier_service = carrierService;
-		
-		// Set carrier product - at this time always private
-		
-		coolRunnerShipment.carrier_product = 'private';
+
+		// Set up pick-up point id
+
+		if (shipment.deliverToPickUpPoint) {
+			coolRunnerShipment.servicepoint_id = shipment.pickUpPointId;
+		}
 		
 		// Set dimensions and weight
 		
@@ -341,7 +357,7 @@ exports.packingCompletedHandler = async (event, context) => {
 					customs.origin_country = "DK";
 					customs.receiver_tariff = customsTariffNumber != null ? customsTariffNumber : harmonizedSystemCode;
 					customs.sender_tariff = harmonizedSystemCode;
-					customs.description = shipmentLine.productName;
+					customs.description = shipmentLine.importExportText + ', ' + shipmentLine.productName;
 					if (salesPrice != null && numItemsPacked != null) {
 						customs.total_price = salesPrice * numItemsPacked;
 					} else {
