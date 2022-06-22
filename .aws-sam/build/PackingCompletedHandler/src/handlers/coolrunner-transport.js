@@ -64,30 +64,6 @@ exports.initializer = async (input, context) => {
 
 };
 
-async function getPack() {
-	
-	const apiUrl = "https://public.thetis-pack.com/rest";
-	
-	let apiKey = process.env.ApiKey;  
-    let pack = axios.create({
-    		baseURL: apiUrl,
-    		headers: { "ThetisAccessToken": apiKey, "Content-Type": "application/json" }
-    	});
-	
-	pack.interceptors.response.use(function (response) {
-			console.log("SUCCESS " + JSON.stringify(response.data));
- 	    	return response;
-		}, function (error) {
-			console.log(JSON.stringify(error));
-			if (error.response) {
-				console.log("FAILURE " + error.response.status + " - " + JSON.stringify(error.response.data));
-			}
-	    	return Promise.reject(error);
-		});
-
-	return pack;
-}
-
 async function getIMS() {
 	
     const authUrl = "https://auth.thetis-ims.com/oauth2/";
@@ -183,27 +159,14 @@ async function getSetup(entity) {
 	return dataDocument.CoolRunnerTransport;
 }
 
-/**
- * A Lambda function that gets shipping labels from CoolRunner.
- */
-exports.packingCompletedHandler = async (event, context) => {
-	
-    console.info(JSON.stringify(event));
+async function book(ims, detail) {
 
-    var detail = event.detail;
-    var shipmentId = detail.shipmentId;
+    let shipmentId = detail.shipmentId;
  
-	let ims;
-	if (detail.contextId == '278') {
-		ims = await getPack();  
-	} else {
-		ims = await getIMS();
-	}
-	
     let response = await ims.get("shipments/" + shipmentId);
     let shipment = response.data;
     
-    // Get setup up from either seller or carrier
+    // Get setup from either seller or carrier
     
     let seller;
     let setup;
@@ -233,7 +196,7 @@ exports.packingCompletedHandler = async (event, context) => {
     
 	let coolRunner = await getCoolRunner(setup);
 
-	let errors = false;
+	let labels = [];
 	let shippingContainers = shipment.shippingContainers;	
 	for (let i = 0; i < shippingContainers.length; i++) {
 		
@@ -350,22 +313,22 @@ exports.packingCompletedHandler = async (event, context) => {
 					let orderLine = new Object();
 					let customsLines = [];
 					orderLine.item_number = shipmentLine.stockKeepingUnit;
-					let numItemsPacked = shipmentLine.numItemsPacked;
-					orderLine.qty = numItemsPacked;
+					let numItemsOrdered = shipmentLine.numItemsOrdered;
+					orderLine.qty = numItemsOrdered;
 					let customs = new Object();
 					customs.currency_code = shipment.currencyCode;
 					customs.origin_country = "DK";
 					customs.receiver_tariff = customsTariffNumber != null ? customsTariffNumber : harmonizedSystemCode;
 					customs.sender_tariff = harmonizedSystemCode;
 					customs.description = shipmentLine.importExportText + ', ' + shipmentLine.productName;
-					if (salesPrice != null && numItemsPacked != null) {
-						customs.total_price = salesPrice * numItemsPacked;
+					if (salesPrice != null) {
+						customs.total_price = salesPrice * numItemsOrdered;
 					} else {
 						customs.total_price = 0;
 					}
 					let weight = shipmentLine.weight;
 					if (weight != null) {
-						customs.weight = weight * numItemsPacked * 1000;
+						customs.weight = weight * numItemsOrdered * 1000;
 					} else {
 						customs.weight = 0;
 					}
@@ -383,8 +346,6 @@ exports.packingCompletedHandler = async (event, context) => {
 	    response = await coolRunner.post("shipments", coolRunnerShipment);
 	
 		if (response.status >= 300) {
-			
-			errors = true;
 			
 			// Send error messages
 			
@@ -414,7 +375,7 @@ exports.packingCompletedHandler = async (event, context) => {
 			let shippingLabel = new Object();
 			shippingLabel.fileName = "SHIPPING_LABEL_" + shippingContainer.id + ".pdf";
 			shippingLabel.base64EncodedContent = response.data.toString('base64');
-			await ims.post("shipments/"+ shipmentId + "/attachments", shippingLabel);
+			labels.push(shippingLabel);
 			
 			let trackingUrl;
 			if (shipment.termsOfDelivery == 'royalmail') {
@@ -427,11 +388,31 @@ exports.packingCompletedHandler = async (event, context) => {
 		
 	}	
 	
+	return labels;
+
+}
+
+/**
+ * A Lambda function that gets shipping labels from CoolRunner.
+ */
+exports.packingCompletedHandler = async (event, context) => {
+	
+    console.info(JSON.stringify(event));
+
+    let detail = event.detail;
+	let ims = await getIMS();
+
+	let labels = book(ims, detail);
+	
 	// Set carriers shipment number
 	
-	if (!errors) {
+	if (labels.length > 0) {
 		
-		await ims.patch("shipments/" + shipment.id, { carriersShipmentNumber: '<none>' });
+		for (let label of labels) {
+			await ims.post("shipments/"+ detail.shipmentId + "/attachments", label);
+		}
+			
+		await ims.patch("shipments/" + detail.shipmentId, { carriersShipmentNumber: '<none>' });
 		
 		var message = new Object();
 		message.time = Date.now();
@@ -447,3 +428,29 @@ exports.packingCompletedHandler = async (event, context) => {
 	return "done";
 
 };
+
+exports.bookingHandler = async (event, context) => {
+
+    console.info(JSON.stringify(event));
+
+    var detail = event.detail;
+
+	let ims = await getIMS();
+
+	await ims.patch('/documents/' + detail.documentId, { workStatus: 'ON_GOING' });
+	
+    let labels = await book(ims, detail);
+    
+	if (labels.length > 0) {
+		for (let label of labels) {
+			await ims.post('/documents/' + detail.documentId + '/attachments', label);
+		}
+		await ims.patch('/documents/' + detail.documentId, { workStatus: 'DONE' });
+    } else {
+		await ims.patch('/documents/' + detail.documentId, { workStatus: 'FAILED' });
+    }
+    
+	return "done";
+	
+};
+
